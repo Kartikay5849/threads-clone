@@ -78,6 +78,8 @@ export async function fetchUserPosts(userId: string){
           }
         } 
       })
+      return threads;
+
     }
     catch(error:any){
         throw new Error(`Error fetching user posts${error.message}`);
