@@ -1,26 +1,26 @@
-"use server"
+"use server";
 
-import { connectToDB } from "../mongoose"
-import User from "../models/user.model";
+import { FilterQuery, SortOrder } from "mongoose";
 import { revalidatePath } from "next/cache";
+
 import Community from "../models/community.model";
 import Thread from "../models/thread.model";
-import { FilterQuery, SortOrder } from "mongoose";
+import User from "../models/user.model";
 
+import { connectToDB } from "../mongoose";
 
 export async function fetchUser(userId: string) {
-    try {
-      connectToDB();
-  
-      return await User.findOne({ id: userId })
-    //   .populate({
-    //     path: "communities",
-    //     model: Community,
-    //   });
-    } catch (error: any) {
-      throw new Error(`Failed to fetch user: ${error.message}`);
-    }
+  try {
+    connectToDB();
+
+    return await User.findOne({ id: userId }).populate({
+      path: "communities",
+      model: Community,
+    });
+  } catch (error: any) {
+    throw new Error(`Failed to fetch user: ${error.message}`);
   }
+}
 
 interface Params {
   userId: string;
@@ -47,8 +47,8 @@ export async function updateUser({
       {
         username: username.toLowerCase(),
         name,
-        image,
         bio,
+        image,
         onboarded: true,
       },
       { upsert: true }
@@ -62,34 +62,41 @@ export async function updateUser({
   }
 }
 
-export async function fetchUserPosts(userId: string){
+export async function fetchUserPosts(userId: string) {
   try {
     connectToDB();
-    const threads=await User.findOne({id: userId})
-    .populate({
-        path: "threads",
-        model: Thread,
-        populate: {
-          path:"children",
+
+    // Find all threads authored by the user with the given userId
+    const threads = await User.findOne({ id: userId }).populate({
+      path: "threads",
+      model: Thread,
+      populate: [
+        {
+          path: "community",
+          model: Community,
+          select: "name id image _id", // Select the "name" and "_id" fields from the "Community" model
+        },
+        {
+          path: "children",
           model: Thread,
           populate: {
-            path:"author",
+            path: "author",
             model: User,
-            select:" name image id"
-          }
-        } 
-      })
-      return threads;
-
-    }
-    catch(error:any){
-        throw new Error(`Error fetching user posts${error.message}`);
-    }
-
-
+            select: "name image id", // Select the "name" and "_id" fields from the "User" model
+          },
+        },
+      ],
+    });
+    return threads;
+  } catch (error) {
+    console.error("Error fetching user threads:", error);
+    throw error;
   }
+}
 
-export async function fetchUsers({ userId,
+// Almost similar to Thead (search + pagination) and Community (search + pagination)
+export async function fetchUsers({
+  userId,
   searchString = "",
   pageNumber = 1,
   pageSize = 20,
@@ -101,9 +108,9 @@ export async function fetchUsers({ userId,
   pageSize?: number;
   sortBy?: SortOrder;
 }) {
-  try{
+  try {
     connectToDB();
-    
+
     // Calculate the number of users to skip based on the page number and page size.
     const skipAmount = (pageNumber - 1) * pageSize;
 
@@ -145,18 +152,23 @@ export async function fetchUsers({ userId,
     throw error;
   }
 }
+
 export async function getActivity(userId: string) {
   try {
     connectToDB();
 
+    // Find all threads created by the user
     const userThreads = await Thread.find({ author: userId });
 
+    // Collect all the child thread ids (replies) from the 'children' field of each user thread
     const childThreadIds = userThreads.reduce((acc, userThread) => {
       return acc.concat(userThread.children);
     }, []);
 
+    // Find and return the child threads (replies) excluding the ones created by the same user
     const replies = await Thread.find({
       _id: { $in: childThreadIds },
+      author: { $ne: userId }, // Exclude threads authored by the same user
     }).populate({
       path: "author",
       model: User,
